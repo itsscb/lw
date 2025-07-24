@@ -15,6 +15,13 @@ impl Item {
         Self::default()
     }
 
+    pub fn modified(&self) -> DateTime<Local> {
+        self.modified
+    }
+    pub fn created(&self) -> DateTime<Local> {
+        self.created
+    }
+
     pub fn content(&self) -> String {
         self.content.clone()
     }

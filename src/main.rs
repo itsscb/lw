@@ -1,5 +1,5 @@
 use color_eyre::Result;
-use lw::{App, log::Item};
+use lw::App;
 
 fn main() -> Result<()> {
     color_eyre::install()?;
