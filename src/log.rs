@@ -15,6 +15,10 @@ impl Item {
         Self::default()
     }
 
+    pub fn content(&self) -> String {
+        self.content.clone()
+    }
+
     pub fn update(&mut self, content: String) {
         self.content = content;
         self.modified = Local::now();

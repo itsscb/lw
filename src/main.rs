@@ -1,15 +1,13 @@
-use std::error::Error;
-
+use color_eyre::Result;
 use lw::{App, log::Item};
 
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() -> Result<()> {
+    color_eyre::install()?;
+
+    let terminal = ratatui::init();
     let mut app = App::default();
-    let item = Item::from("hello_world");
-    let id = item.id();
-    app.add(item)?;
-    println!("{app:?}");
-    app.remove(id)?;
-    app.save()?;
-    println!("{app:?}");
-    Ok(())
+
+    let result = app.run(terminal);
+    ratatui::restore();
+    result
 }
