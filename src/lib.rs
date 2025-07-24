@@ -45,6 +45,14 @@ impl Default for App {
         }
 
         dir.push("config.json");
+
+        if dir.exists()
+            && let Ok(v) = fs::read_to_string(&dir)
+            && let Ok(app) = serde_json::from_str(&v)
+        {
+            return app;
+        }
+
         Self {
             logs: vec![],
             config: dir,
