@@ -19,9 +19,14 @@ impl App {
         Self::default()
     }
 
-    pub fn add(&mut self, item: Item) {
+    pub fn add(&mut self, item: Item) -> Result<()> {
         self.logs.push(item);
-        let _ = self.save();
+        self.save()
+    }
+
+    pub fn remove<T: AsRef<str>>(&mut self, id: T) -> Result<()> {
+        self.logs.retain(|i| i.id() != id.as_ref());
+        self.save()
     }
 
     pub fn save(&self) -> Result<()> {

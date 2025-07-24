@@ -1,8 +1,15 @@
-use lw::App;
+use std::error::Error;
 
-fn main() {
+use lw::{App, log::Item};
+
+fn main() -> Result<(), Box<dyn Error>> {
     let mut app = App::default();
-    app.add("hello_world".into());
-    app.save().unwrap();
+    let item = Item::from("hello_world");
+    let id = item.id();
+    app.add(item)?;
     println!("{app:?}");
+    app.remove(id)?;
+    app.save()?;
+    println!("{app:?}");
+    Ok(())
 }
