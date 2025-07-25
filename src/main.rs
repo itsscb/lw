@@ -11,7 +11,13 @@ fn main() -> Result<()> {
     let args = env::args();
 
     if args.len() > 1 {
-        args.into_iter().skip(1).for_each(|a| app.add(a.into()));
+        app.add(
+            args.into_iter()
+                .skip(1)
+                .collect::<Vec<String>>()
+                .join(" ")
+                .into(),
+        ); //.for_each(|a| app.add(a.into()));
         app.save()?;
         return Ok(());
     }
