@@ -3,7 +3,7 @@ use std::{fs, path::PathBuf};
 
 use color_eyre::{Result, eyre::eyre};
 
-use ratatui::crossterm::event::KeyModifiers;
+use ratatui::crossterm::event::{KeyEvent, KeyModifiers};
 use ratatui::layout::Flex;
 use ratatui::prelude::*;
 
@@ -24,14 +24,19 @@ pub mod log;
 
 pub static APP_NAME: &str = "lw";
 static CONFIG_PATH: OnceLock<PathBuf> = OnceLock::new();
+static COLOR_PRIMARY: Color = Color::Rgb(51, 217, 178);
+static COLOR_SECONDARY: Color = Color::Rgb(52, 172, 224);
+static COLOR_TERTIARY: Color = Color::Rgb(247, 241, 227);
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct App {
     logs: Vec<Item>,
     #[serde(skip)]
-    delete: Option<usize>,
+    exit: bool,
     #[serde(skip)]
-    input: String,
+    edit: Option<Item>,
+    #[serde(skip)]
+    delete: Option<usize>,
     #[serde(skip)]
     state: TableState,
 }
@@ -53,8 +58,10 @@ impl App {
     pub fn new(config: PathBuf) -> Result<Self> {
         if config.exists()
             && let Ok(v) = fs::read_to_string(config)
-            && let Ok(app) = serde_json::from_str(&v)
         {
+            let mut app: Self = serde_json::from_str(&v)?;
+
+            app.logs.sort_by(|a, b| b.created().cmp(&a.created()));
             return Ok(app);
         }
         Err(eyre!("failed to read config"))
@@ -82,95 +89,210 @@ impl App {
     }
 
     fn draw(&mut self, frame: &mut Frame) {
-        if let Some(item) = self.logs.last()
-            && item.content().is_empty()
-        {
-            let block = Block::bordered().title("New");
-            let area = popup_area(frame.area(), 60, 20);
-            frame.render_widget(Clear, area);
-            frame.render_widget(
-                Paragraph::new(Text::from(self.input.clone())).block(block),
-                area,
-            );
-        }
         self.render(frame.area(), frame.buffer_mut());
+        if let Some(ref item) = self.edit {
+            let block = Block::bordered().title("Details");
+            let area = popup_area(frame.area(), 80, 80);
+
+            frame.render_widget(Clear, area);
+
+            let outer = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints(vec![Constraint::Percentage(50), Constraint::Percentage(50)])
+                .split(area);
+
+            let inner = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints(vec![Constraint::Percentage(50), Constraint::Percentage(50)])
+                .split(outer[1]);
+
+            frame.render_widget(
+                Paragraph::new(
+                    Text::from(format!(
+                        "modified at {}",
+                        item.modified().format("%Y-%m-%d %H:%M:%S").to_string()
+                    ))
+                    .right_aligned(),
+                )
+                .right_aligned(),
+                inner[1],
+            );
+
+            frame.render_widget(
+                Paragraph::new(Text::from(format!(
+                    "created at {}",
+                    item.created().format("%Y-%m-%d %H:%M:%S").to_string()
+                ))),
+                inner[0],
+            );
+
+            let content: String = item.content().to_owned();
+            let v: Vec<Line> = content
+                .split("\n")
+                .enumerate()
+                .map(|(i, c)| {
+                    let mut t = vec![Span::from(c)];
+                    if i >= content.split("\n").count() - 1 {
+                        t.push(
+                            Span::from("_")
+                                .patch_style(Style::new().add_modifier(Modifier::RAPID_BLINK)),
+                        );
+                    }
+                    Line::from(t)
+                })
+                .collect();
+
+            frame.render_widget(Paragraph::new(v).block(block), outer[0]);
+        }
+    }
+
+    pub fn handle_edit_keys(&mut self, key_event: KeyEvent, item: Item) -> Result<()> {
+        match key_event.code {
+            KeyCode::Char('o') | KeyCode::Enter
+                if key_event.modifiers.contains(KeyModifiers::CONTROL) =>
+            {
+                if !item
+                    .content()
+                    .replace("\n", "")
+                    .replace("\t", "")
+                    .is_empty()
+                {
+                    if self.logs.iter().find(|l| l.id() == item.id()).is_some() {
+                        self.update(item.id(), item.content());
+                    } else {
+                        self.logs.push(item.clone());
+                    }
+                    self.edit = None;
+                    self.save()?;
+                }
+            }
+            KeyCode::Enter => {
+                let mut tmp = item.clone();
+                let mut s = tmp.content();
+                s.push('\n');
+                tmp.update(s);
+                self.edit = Some(tmp);
+            }
+            KeyCode::Char(key) => {
+                if key == 'c' && key_event.modifiers.contains(KeyModifiers::CONTROL) {
+                    self.edit = None;
+                } else {
+                    let mut tmp = item.clone();
+                    let mut s = tmp.content();
+                    s.push(key);
+                    tmp.update(s);
+                    self.edit = Some(tmp);
+                }
+            }
+            KeyCode::Backspace => {
+                let mut tmp = item.clone();
+                let mut s: String = tmp.content();
+                if s.len() > 0 {
+                    tmp.update(if key_event.modifiers.contains(KeyModifiers::CONTROL) {
+                        ctrl_backspace_remaining(s)
+                    } else {
+                        s.truncate(s.len() - 1);
+                        s
+                    });
+                    self.edit = Some(tmp);
+                }
+            }
+            KeyCode::Esc => {
+                self.edit = None;
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    pub fn handle_main_keys(&mut self, key_event: KeyEvent) -> Result<()> {
+        match key_event.code {
+            KeyCode::Char('q') | KeyCode::Esc => self.exit = true,
+            KeyCode::Char('e') | KeyCode::Char(' ') | KeyCode::Enter => match self.state.selected()
+            {
+                Some(selected) => {
+                    if let Some(v) = self.logs.get(selected) {
+                        self.edit = Some(v.clone());
+                    } else {
+                        self.edit = Some(Item::new());
+                    }
+                }
+                None => self.edit = Some(Item::new()),
+            },
+            KeyCode::Char('j') | KeyCode::Down => {
+                self.state.select_next();
+                self.delete = None;
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                self.state.select_previous();
+                self.delete = None;
+            }
+            KeyCode::Char('g') | KeyCode::Home => {
+                self.state.select_first();
+                self.delete = None;
+            }
+            KeyCode::Char('G') | KeyCode::End => {
+                self.state.select_last();
+                self.delete = None;
+            }
+            KeyCode::Char('o') => {
+                self.edit = Some(Item::new());
+                self.delete = None;
+            }
+            KeyCode::Char('d') => {
+                let curr = self.state.selected();
+                match curr {
+                    None => {
+                        self.delete = None;
+                    }
+                    Some(c) => {
+                        if self.delete == curr {
+                            let id = self.logs[c].id();
+                            self.delete = None;
+                            self.remove(id);
+                            self.save()?;
+                        } else {
+                            self.delete = curr;
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+        Ok(())
     }
 
     pub fn run(&mut self, mut terminal: DefaultTerminal) -> Result<()> {
+        self.state.select_next();
         loop {
+            if self.exit {
+                break Ok(());
+            }
             terminal.draw(|frame| self.draw(frame))?;
             if let Ok(event) = event::read()
                 && let Event::Key(key_event) = event
                 && key_event.kind == event::KeyEventKind::Press
             {
-                if let Some(item) = self.logs.last()
-                    && item.content().is_empty()
-                {
-                    match key_event.code {
-                        KeyCode::Char('o')
-                            if key_event.modifiers.contains(KeyModifiers::CONTROL) =>
-                        {
-                            self.update(item.id(), self.input.clone());
-                            self.input = String::new();
-                            self.save()?;
-                            continue;
-                        }
-                        KeyCode::Char(key) => {
-                            self.input.push(key);
-                            continue;
-                        }
-                        KeyCode::Backspace => {
-                            self.input.truncate(self.input.len() - 1);
-                            continue;
-                        }
-                        KeyCode::Esc => {
-                            self.remove(item.id());
-                            self.input = String::new();
-                            self.save()?;
-                            continue;
-                        }
-                        _ => {}
-                    }
+                if self.edit.is_some() {
+                    let item = self.edit.clone().unwrap();
+                    self.handle_edit_keys(key_event, item)?;
+                    continue;
                 }
-                match key_event.code {
-                    KeyCode::Char('q') | KeyCode::Esc => break Ok(()),
-                    KeyCode::Char('j') | KeyCode::Down => self.state.select_next(),
-                    KeyCode::Char('k') | KeyCode::Up => self.state.select_previous(),
-                    KeyCode::Char('g') | KeyCode::Home => self.state.select_first(),
-                    KeyCode::Char('G') | KeyCode::End => self.state.select_last(),
-                    KeyCode::Char('o') => self.add(Item::new()),
-                    KeyCode::Char('d') => {
-                        let curr = self.state.selected();
-                        match curr {
-                            None => {
-                                self.delete = None;
-                                continue;
-                            }
-                            Some(c) => {
-                                if self.delete == curr {
-                                    let id = self.logs[c].id();
-                                    self.remove(id);
-                                    self.save()?;
-                                } else {
-                                    self.delete = curr;
-                                }
-                            }
-                        }
-                    }
-                    _ => {}
-                }
+                self.handle_main_keys(key_event)?;
             }
         }
     }
 
     pub fn add(&mut self, item: Item) {
         self.logs.push(item);
+        self.logs.sort_by(|a, b| b.created().cmp(&a.created()));
     }
 
     pub fn update<T: AsRef<str>>(&mut self, id: T, content: T) {
         if let Some(item) = self.logs.iter_mut().find(|i| i.id() == id.as_ref()) {
             item.update(content.as_ref().to_owned());
         }
+        self.logs.sort_by(|a, b| b.created().cmp(&a.created()));
     }
 
     pub fn remove<T: AsRef<str>>(&mut self, id: T) {
@@ -189,42 +311,45 @@ impl Widget for &mut App {
     where
         Self: Sized,
     {
-        let title = Line::from(" Log Your Work ".bold());
+        let title = Line::from(Span::styled(
+            " Log Your Work ",
+            Style::default().fg(COLOR_PRIMARY).bold(),
+        ));
 
         let instructions = Line::from(vec![
             Span::raw(" New "),
             Span::styled(
                 "<O>",
                 Style::default()
-                    .fg(Color::DarkGray)
+                    .fg(COLOR_PRIMARY)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::raw(" Select "),
             Span::styled(
                 "<Space>",
                 Style::default()
-                    .fg(Color::DarkGray)
+                    .fg(COLOR_PRIMARY)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::raw(" Down "),
             Span::styled(
                 "<J>",
                 Style::default()
-                    .fg(Color::DarkGray)
+                    .fg(COLOR_PRIMARY)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::raw(" Up "),
             Span::styled(
                 "<K>",
                 Style::default()
-                    .fg(Color::DarkGray)
+                    .fg(COLOR_PRIMARY)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::raw(" Quit "),
             Span::styled(
                 "<Q> | <ESC>",
                 Style::default()
-                    .fg(Color::DarkGray)
+                    .fg(COLOR_PRIMARY)
                     .add_modifier(Modifier::BOLD),
             ),
         ]);
@@ -232,53 +357,92 @@ impl Widget for &mut App {
         let block = Block::bordered()
             .title(title.centered())
             .title_bottom(instructions.centered())
-            .title_style(Style::new().blue())
+            .title_style(Color::White)
             .border_set(border::THICK)
-            .border_style(Style::new().dark_gray());
+            .border_style(Color::White);
 
-        let header = ["Log", "Modified", "Created"]
-            .into_iter()
-            .map(Cell::from)
-            .collect::<Row>()
-            .style(Style::default().fg(Color::DarkGray).bold())
-            .height(1);
+        let header = [
+            "Log", // "Modified",
+            "Created",
+        ]
+        .into_iter()
+        .map(Cell::from)
+        .collect::<Row>()
+        .style(Style::default().fg(COLOR_TERTIARY).bold())
+        .height(1);
+
+        let mut highlight_style = Style::new().fg(COLOR_PRIMARY).bold();
 
         let items: Vec<Row> = self
             .logs
             .iter()
-            .map(|item| {
+            .enumerate()
+            .map(|(i, item)| {
                 [
-                    item.content(),
-                    item.modified().format("%Y-%m-%d %H:%M:%S").to_string(),
+                    item.content().replace("\n", " "),
+                    // item.modified().format("%Y-%m-%d %H:%M:%S").to_string(),
                     item.created().format("%Y-%m-%d %H:%M:%S").to_string(),
                 ]
                 .into_iter()
-                .map(|c| Cell::from(Text::from(c)))
+                .map(|c| {
+                    Cell::from(Text::from(c).style({
+                        let s = Style::new();
+
+                        if let Some(index) = self.delete
+                            && i == index
+                        {
+                            highlight_style = Style::new().fg(Color::LightRed).bold();
+                            s.fg(Color::LightRed).bold()
+                        } else {
+                            s
+                        }
+                    }))
+                })
                 .collect::<Row>()
                 .style(Style::new().fg(Color::White))
                 .height(4)
             })
             .collect();
 
-        let table = Table::new(
-            items,
-            [
-                Constraint::Min(200),
-                Constraint::Min(10),
-                Constraint::Min(10),
-            ],
-        )
-        .block(block)
-        .header(header)
-        .highlight_symbol(">")
-        .row_highlight_style(Style::new().bold().fg(Color::Green))
-        .highlight_spacing(HighlightSpacing::Always);
+        let table = Table::new(items, [Constraint::Min(200), Constraint::Min(20)])
+            .block(block)
+            .header(header)
+            .highlight_symbol("> ")
+            .row_highlight_style(highlight_style)
+            .highlight_spacing(HighlightSpacing::Always);
 
-        // let list = List::new(items)
-        //     .block(block)
-        //     .highlight_symbol(">")
-        //     .highlight_spacing(HighlightSpacing::Always);
-        //
         StatefulWidget::render(table, area, buf, &mut self.state);
     }
+}
+
+fn ctrl_backspace_remaining<T: AsRef<str>>(s: T) -> String {
+    let s = String::from(s.as_ref());
+    let cut_pos = {
+        let mut chars = s.char_indices().rev();
+
+        let mut pos_after_trailing_ws = None;
+        for (idx, ch) in &mut chars {
+            if !ch.is_whitespace() {
+                pos_after_trailing_ws = Some(idx + ch.len_utf8());
+                break;
+            }
+        }
+
+        match pos_after_trailing_ws {
+            None => 0,
+            Some(_) => {
+                let mut o = 0;
+                for (idx, ch) in chars {
+                    if ch.is_whitespace() {
+                        o = idx + ch.len_utf8();
+                        o = o.saturating_sub(1);
+                        break;
+                    }
+                }
+                o
+            }
+        }
+    };
+
+    String::from(&s[..cut_pos])
 }
