@@ -91,8 +91,30 @@ impl App {
     fn draw(&mut self, frame: &mut Frame) {
         self.render(frame.area(), frame.buffer_mut());
         if let Some(ref item) = self.edit {
-            let block = Block::bordered().title("Details");
-            let area = popup_area(frame.area(), 80, 80);
+            let block = Block::bordered()
+                .title(Span::styled(
+                    "Details",
+                    Style::default().bold().fg(COLOR_SECONDARY),
+                ))
+                .title_bottom(Line::from(vec![
+                    Span::raw(" Save "),
+                    Span::styled(
+                        "<CTRL-Enter> | <CTRL-O>",
+                        Style::default()
+                            .fg(COLOR_SECONDARY)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::raw(" Cancel "),
+                    Span::styled(
+                        "<CTRL-C> | <ESC>",
+                        Style::default()
+                            .fg(COLOR_SECONDARY)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                ]))
+                .title_style(Style::default().bold().fg(Color::White));
+
+            let area = popup_area(frame.area(), 90, 90);
 
             frame.render_widget(Clear, area);
 
@@ -112,6 +134,7 @@ impl App {
                         "modified at {}",
                         item.modified().format("%Y-%m-%d %H:%M:%S").to_string()
                     ))
+                    .style(Style::default().fg(COLOR_SECONDARY).bold())
                     .right_aligned(),
                 )
                 .right_aligned(),
@@ -119,10 +142,13 @@ impl App {
             );
 
             frame.render_widget(
-                Paragraph::new(Text::from(format!(
-                    "created at {}",
-                    item.created().format("%Y-%m-%d %H:%M:%S").to_string()
-                ))),
+                Paragraph::new(
+                    Text::from(format!(
+                        "created at {}",
+                        item.created().format("%Y-%m-%d %H:%M:%S").to_string()
+                    ))
+                    .style(Style::default().fg(COLOR_SECONDARY).bold()),
+                ),
                 inner[0],
             );
 
@@ -161,6 +187,7 @@ impl App {
                         self.update(item.id(), item.content());
                     } else {
                         self.logs.push(item.clone());
+                        self.logs.sort_by(|a, b| b.created().cmp(&a.created()));
                     }
                     self.edit = None;
                     self.save()?;
@@ -319,35 +346,49 @@ impl Widget for &mut App {
         let instructions = Line::from(vec![
             Span::raw(" New "),
             Span::styled(
-                "<O>",
+                "<o>",
                 Style::default()
                     .fg(COLOR_PRIMARY)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::raw(" Select "),
             Span::styled(
-                "<Space>",
+                "<e> | <Enter> | <Space>",
                 Style::default()
                     .fg(COLOR_PRIMARY)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::raw(" Down "),
             Span::styled(
-                "<J>",
+                "<j>",
                 Style::default()
                     .fg(COLOR_PRIMARY)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::raw(" Up "),
             Span::styled(
-                "<K>",
+                "<k>",
+                Style::default()
+                    .fg(COLOR_PRIMARY)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" Bottom "),
+            Span::styled(
+                "<G>",
+                Style::default()
+                    .fg(COLOR_PRIMARY)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" Top "),
+            Span::styled(
+                "<g>",
                 Style::default()
                     .fg(COLOR_PRIMARY)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::raw(" Quit "),
             Span::styled(
-                "<Q> | <ESC>",
+                "<q> | <ESC>",
                 Style::default()
                     .fg(COLOR_PRIMARY)
                     .add_modifier(Modifier::BOLD),
@@ -400,7 +441,7 @@ impl Widget for &mut App {
                 })
                 .collect::<Row>()
                 .style(Style::new().fg(Color::White))
-                .height(4)
+                .height(2)
             })
             .collect();
 
