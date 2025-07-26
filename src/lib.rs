@@ -459,13 +459,20 @@ impl Widget for &mut App {
             })
             .collect();
 
-        let table = Table::new(items, [Constraint::Min(200), Constraint::Min(20)])
+        let empty = items.is_empty();
+
+        let mut table = Table::new(items, [Constraint::Min(200), Constraint::Min(20)])
             .block(block)
             .header(header)
             .highlight_symbol("> ")
             .row_highlight_style(highlight_style)
             .highlight_spacing(HighlightSpacing::Always);
 
+        if empty {
+            table = table.footer(
+                Row::new(vec!["Nothing here yet"]).style(Style::default().fg(COLOR_SECONDARY)),
+            );
+        }
         StatefulWidget::render(table, area, buf, &mut self.state);
     }
 }
