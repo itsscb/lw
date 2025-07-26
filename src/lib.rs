@@ -47,13 +47,6 @@ impl Default for App {
         Self::new(config.to_owned()).expect("could not create app struct with default config")
     }
 }
-fn popup_area(area: Rect, percent_x: u16, percent_y: u16) -> Rect {
-    let vertical = Layout::vertical([Constraint::Percentage(percent_y)]).flex(Flex::Center);
-    let horizontal = Layout::horizontal([Constraint::Percentage(percent_x)]).flex(Flex::Center);
-    let [area] = vertical.areas(area);
-    let [area] = horizontal.areas(area);
-    area
-}
 impl App {
     pub fn new(config: PathBuf) -> Result<Self> {
         if config.exists()
@@ -61,7 +54,7 @@ impl App {
         {
             let mut app: Self = serde_json::from_str(&v)?;
 
-            app.logs.sort_by(|a, b| b.created().cmp(&a.created()));
+            app.logs.sort_by_key(|l| std::cmp::Reverse(l.created()));
             return Ok(app);
         }
         Err(eyre!("failed to read config"))
@@ -132,7 +125,7 @@ impl App {
                 Paragraph::new(
                     Text::from(format!(
                         "modified at {}",
-                        item.modified().format("%Y-%m-%d %H:%M:%S").to_string()
+                        item.modified().format("%Y-%m-%d %H:%M:%S")
                     ))
                     .style(Style::default().fg(COLOR_SECONDARY).bold())
                     .right_aligned(),
@@ -145,7 +138,7 @@ impl App {
                 Paragraph::new(
                     Text::from(format!(
                         "created at {}",
-                        item.created().format("%Y-%m-%d %H:%M:%S").to_string()
+                        item.created().format("%Y-%m-%d %H:%M:%S")
                     ))
                     .style(Style::default().fg(COLOR_SECONDARY).bold()),
                 ),
@@ -168,12 +161,25 @@ impl App {
                 })
                 .collect();
 
-            frame.render_widget(Paragraph::new(v).block(block), outer[0]);
+            frame.render_widget(
+                Paragraph::new(v)
+                    .block(block)
+                    .wrap(ratatui::widgets::Wrap { trim: false }),
+                outer[0],
+            );
         }
     }
 
     pub fn handle_edit_keys(&mut self, key_event: KeyEvent, item: Item) -> Result<()> {
         match key_event.code {
+            KeyCode::Backspace => {
+                if let Some(item) = handle_backspace(item.clone(), key_event) {
+                    self.edit = Some(item);
+                }
+            }
+            KeyCode::Esc => {
+                self.edit = None;
+            }
             KeyCode::Char('o') | KeyCode::Enter
                 if key_event.modifiers.contains(KeyModifiers::CONTROL) =>
             {
@@ -183,11 +189,11 @@ impl App {
                     .replace("\t", "")
                     .is_empty()
                 {
-                    if self.logs.iter().find(|l| l.id() == item.id()).is_some() {
+                    if self.logs.iter().any(|l| l.id() == item.id()) {
                         self.update(item.id(), item.content());
                     } else {
                         self.logs.push(item.clone());
-                        self.logs.sort_by(|a, b| b.created().cmp(&a.created()));
+                        self.logs.sort_by_key(|l| std::cmp::Reverse(l.created()));
                     }
                     self.edit = None;
                     self.save()?;
@@ -201,7 +207,11 @@ impl App {
                 self.edit = Some(tmp);
             }
             KeyCode::Char(key) => {
-                if key == 'c' && key_event.modifiers.contains(KeyModifiers::CONTROL) {
+                if key == 'h' && key_event.modifiers.contains(KeyModifiers::CONTROL) {
+                    if let Some(item) = handle_backspace(item.clone(), key_event) {
+                        self.edit = Some(item);
+                    }
+                } else if key == 'c' && key_event.modifiers.contains(KeyModifiers::CONTROL) {
                     self.edit = None;
                 } else {
                     let mut tmp = item.clone();
@@ -210,22 +220,6 @@ impl App {
                     tmp.update(s);
                     self.edit = Some(tmp);
                 }
-            }
-            KeyCode::Backspace => {
-                let mut tmp = item.clone();
-                let mut s: String = tmp.content();
-                if s.len() > 0 {
-                    tmp.update(if key_event.modifiers.contains(KeyModifiers::CONTROL) {
-                        ctrl_backspace_remaining(s)
-                    } else {
-                        s.truncate(s.len() - 1);
-                        s
-                    });
-                    self.edit = Some(tmp);
-                }
-            }
-            KeyCode::Esc => {
-                self.edit = None;
             }
             _ => {}
         }
@@ -300,8 +294,8 @@ impl App {
                 && let Event::Key(key_event) = event
                 && key_event.kind == event::KeyEventKind::Press
             {
-                if self.edit.is_some() {
-                    let item = self.edit.clone().unwrap();
+                if let Some(ref item) = self.edit {
+                    let item = item.clone();
                     self.handle_edit_keys(key_event, item)?;
                     continue;
                 }
@@ -312,14 +306,14 @@ impl App {
 
     pub fn add(&mut self, item: Item) {
         self.logs.push(item);
-        self.logs.sort_by(|a, b| b.created().cmp(&a.created()));
+        self.logs.sort_by_key(|l| std::cmp::Reverse(l.created()));
     }
 
     pub fn update<T: AsRef<str>>(&mut self, id: T, content: T) {
         if let Some(item) = self.logs.iter_mut().find(|i| i.id() == id.as_ref()) {
             item.update(content.as_ref().to_owned());
         }
-        self.logs.sort_by(|a, b| b.created().cmp(&a.created()));
+        self.logs.sort_by_key(|l| std::cmp::Reverse(l.created()));
     }
 
     pub fn remove<T: AsRef<str>>(&mut self, id: T) {
@@ -469,21 +463,43 @@ fn ctrl_backspace_remaining<T: AsRef<str>>(s: T) -> String {
             }
         }
 
-        match pos_after_trailing_ws {
-            None => 0,
-            Some(_) => {
-                let mut o = 0;
-                for (idx, ch) in chars {
-                    if ch.is_whitespace() {
-                        o = idx + ch.len_utf8();
-                        o = o.saturating_sub(1);
-                        break;
-                    }
+        if pos_after_trailing_ws.is_some() {
+            let mut o = 0;
+            for (idx, ch) in chars {
+                if ch.is_whitespace() {
+                    o = idx + ch.len_utf8();
+                    o = o.saturating_sub(1);
+                    break;
                 }
-                o
             }
+            o
+        } else {
+            0
         }
     };
 
     String::from(&s[..cut_pos])
+}
+
+fn handle_backspace(item: Item, key_event: KeyEvent) -> Option<Item> {
+    let mut tmp = item;
+    let mut s: String = tmp.content();
+    if !s.is_empty() {
+        tmp.update(if key_event.modifiers.contains(KeyModifiers::CONTROL) {
+            ctrl_backspace_remaining(s)
+        } else {
+            s.truncate(s.len() - 1);
+            s
+        });
+        return Some(tmp);
+    }
+    None
+}
+
+fn popup_area(area: Rect, percent_x: u16, percent_y: u16) -> Rect {
+    let vertical = Layout::vertical([Constraint::Percentage(percent_y)]).flex(Flex::Center);
+    let horizontal = Layout::horizontal([Constraint::Percentage(percent_x)]).flex(Flex::Center);
+    let [area] = vertical.areas(area);
+    let [area] = horizontal.areas(area);
+    area
 }
