@@ -25,8 +25,10 @@ pub mod log;
 pub static APP_NAME: &str = "lw";
 static CONFIG_PATH: OnceLock<PathBuf> = OnceLock::new();
 static COLOR_PRIMARY: Color = Color::Rgb(51, 217, 178);
+static COLOR_PRIMARY_DARK: Color = Color::Rgb(33, 140, 116);
 static COLOR_SECONDARY: Color = Color::Rgb(52, 172, 224);
 static COLOR_TERTIARY: Color = Color::Rgb(247, 241, 227);
+static COLOR_TERTIARY_DARK: Color = Color::Rgb(132, 129, 122);
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct App {
@@ -92,16 +94,16 @@ impl App {
                 .title_bottom(Line::from(vec![
                     Span::raw(" Save "),
                     Span::styled(
-                        "<CTRL-Enter> | <CTRL-O>",
+                        "<CTRL-Enter> | <CTRL-o>",
                         Style::default()
-                            .fg(COLOR_SECONDARY)
+                            .fg(COLOR_PRIMARY)
                             .add_modifier(Modifier::BOLD),
                     ),
                     Span::raw(" Cancel "),
                     Span::styled(
-                        "<CTRL-C> | <ESC>",
+                        "<CTRL-c> | <ESC>",
                         Style::default()
-                            .fg(COLOR_SECONDARY)
+                            .fg(COLOR_PRIMARY)
                             .add_modifier(Modifier::BOLD),
                     ),
                 ]))
@@ -332,9 +334,21 @@ impl Widget for &mut App {
     where
         Self: Sized,
     {
+        let primary_color = if self.edit.is_none() {
+            COLOR_PRIMARY
+        } else {
+            COLOR_PRIMARY_DARK
+        };
+
+        let teritary_color = if self.edit.is_none() {
+            COLOR_TERTIARY
+        } else {
+            COLOR_TERTIARY_DARK
+        };
+
         let title = Line::from(Span::styled(
             " Log Your Work ",
-            Style::default().fg(COLOR_PRIMARY).bold(),
+            Style::default().fg(primary_color).bold(),
         ));
 
         let instructions = Line::from(vec![
@@ -342,49 +356,49 @@ impl Widget for &mut App {
             Span::styled(
                 "<o>",
                 Style::default()
-                    .fg(COLOR_PRIMARY)
+                    .fg(primary_color)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::raw(" Select "),
             Span::styled(
                 "<e> | <Enter> | <Space>",
                 Style::default()
-                    .fg(COLOR_PRIMARY)
+                    .fg(primary_color)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::raw(" Down "),
             Span::styled(
                 "<j>",
                 Style::default()
-                    .fg(COLOR_PRIMARY)
+                    .fg(primary_color)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::raw(" Up "),
             Span::styled(
                 "<k>",
                 Style::default()
-                    .fg(COLOR_PRIMARY)
+                    .fg(primary_color)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::raw(" Bottom "),
             Span::styled(
                 "<G>",
                 Style::default()
-                    .fg(COLOR_PRIMARY)
+                    .fg(primary_color)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::raw(" Top "),
             Span::styled(
                 "<g>",
                 Style::default()
-                    .fg(COLOR_PRIMARY)
+                    .fg(primary_color)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::raw(" Quit "),
             Span::styled(
                 "<q> | <ESC>",
                 Style::default()
-                    .fg(COLOR_PRIMARY)
+                    .fg(primary_color)
                     .add_modifier(Modifier::BOLD),
             ),
         ]);
@@ -403,10 +417,16 @@ impl Widget for &mut App {
         .into_iter()
         .map(Cell::from)
         .collect::<Row>()
-        .style(Style::default().fg(COLOR_TERTIARY).bold())
+        .style(Style::default().fg(teritary_color).bold())
         .height(1);
 
-        let mut highlight_style = Style::new().fg(COLOR_PRIMARY).bold();
+        let mut highlight_style = Style::new().fg(primary_color).bold();
+
+        let row_text_color = if self.edit.is_some() {
+            COLOR_TERTIARY_DARK
+        } else {
+            Color::White
+        };
 
         let items: Vec<Row> = self
             .logs
@@ -434,7 +454,7 @@ impl Widget for &mut App {
                     }))
                 })
                 .collect::<Row>()
-                .style(Style::new().fg(Color::White))
+                .style(Style::new().fg(row_text_color))
                 .height(2)
             })
             .collect();
