@@ -428,51 +428,47 @@ impl Widget for &mut App {
             Color::White
         };
 
-        let items: Vec<Row> = self
-            .logs
-            .iter()
-            .enumerate()
-            .map(|(i, item)| {
-                [
-                    item.content().replace("\n", " "),
-                    // item.modified().format("%Y-%m-%d %H:%M:%S").to_string(),
-                    item.created().format("%Y-%m-%d %H:%M:%S").to_string(),
-                ]
-                .into_iter()
-                .map(|c| {
-                    Cell::from(Text::from(c).style({
-                        let s = Style::new();
+        let items: Vec<Row> = if self.logs.is_empty() {
+            vec![Row::new(vec!["Nothing here yet"])]
+        } else {
+            self.logs
+                .iter()
+                .enumerate()
+                .map(|(i, item)| {
+                    [
+                        item.content().replace("\n", " "),
+                        // item.modified().format("%Y-%m-%d %H:%M:%S").to_string(),
+                        item.created().format("%Y-%m-%d %H:%M:%S").to_string(),
+                    ]
+                    .into_iter()
+                    .map(|c| {
+                        Cell::from(Text::from(c).style({
+                            let s = Style::new();
 
-                        if let Some(index) = self.delete
-                            && i == index
-                        {
-                            highlight_style = Style::new().fg(Color::LightRed).bold();
-                            s.fg(Color::LightRed).bold()
-                        } else {
-                            s
-                        }
-                    }))
+                            if let Some(index) = self.delete
+                                && i == index
+                            {
+                                highlight_style = Style::new().fg(Color::LightRed).bold();
+                                s.fg(Color::LightRed).bold()
+                            } else {
+                                s
+                            }
+                        }))
+                    })
+                    .collect::<Row>()
+                    .style(Style::new().fg(row_text_color))
+                    .height(2)
                 })
-                .collect::<Row>()
-                .style(Style::new().fg(row_text_color))
-                .height(2)
-            })
-            .collect();
+                .collect()
+        };
 
-        let empty = items.is_empty();
-
-        let mut table = Table::new(items, [Constraint::Min(200), Constraint::Min(20)])
+        let table = Table::new(items, [Constraint::Min(200), Constraint::Min(20)])
             .block(block)
             .header(header)
             .highlight_symbol("> ")
             .row_highlight_style(highlight_style)
             .highlight_spacing(HighlightSpacing::Always);
 
-        if empty {
-            table = table.footer(
-                Row::new(vec!["Nothing here yet"]).style(Style::default().fg(COLOR_SECONDARY)),
-            );
-        }
         StatefulWidget::render(table, area, buf, &mut self.state);
     }
 }
