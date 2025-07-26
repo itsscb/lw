@@ -44,7 +44,7 @@ Run the application from the terminal:
 
 ## Data Storage
 
-Your personal log entries are saved in a JSON file named `lw.json` located in the platform-specific configuration directory:
+Your personal log entries are saved in a JSON file named `config.json` located in the platform-specific configuration directory:
 
 - **Windows:** `%APPDATA%\lw\config.json`  
 - **Unix/Linux/macOS:** `$HOME/.config/lw/config.json`  
