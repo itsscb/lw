@@ -2,6 +2,8 @@
 
 `lw` is a terminal-based tool for creating and managing personal logs directly from the command line. It enables you to quickly record, edit, and review your achievements, notes, or any personal entries using an interactive text user interface (TUI).
 
+![Demo GIF](./assets/demo.gif)
+
 ---
 
 ## Features
